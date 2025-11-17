@@ -13,7 +13,11 @@ async function parseShortUrl(url: string): Promise<{ longUrl: string; platform: 
     // 清理URL - 移除多余文本
     const cleanUrl = url.split(' ')[0].trim();
     
-    const response = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'}/api/shorten`, {
+    const baseUrl = process.env.VERCEL_URL 
+      ? `https://${process.env.VERCEL_URL}`
+      : process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
+
+    const response = await fetch(`${baseUrl}/api/shorten`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -68,7 +72,7 @@ async function processExcelFile(buffer: ArrayBuffer): Promise<any[]> {
       header: 1,
       defval: '',
       raw: false
-    });
+    }) as any[][]; // 添加类型断言
 
     console.log(`Excel原始数据: ${jsonData.length} 行`);
 
@@ -76,8 +80,8 @@ async function processExcelFile(buffer: ArrayBuffer): Promise<any[]> {
       throw new Error('Excel文件为空');
     }
 
-    // 第一行为表头
-    const headers = jsonData[0].map((header: any, index: number) => {
+    // 第一行为表头 - 修复类型问题
+    const headers = (jsonData[0] as any[]).map((header: any, index: number) => {
       if (header === null || header === undefined || header === '') {
         return `列${index + 1}`;
       }
@@ -87,7 +91,7 @@ async function processExcelFile(buffer: ArrayBuffer): Promise<any[]> {
     console.log('表头:', headers);
 
     // 从第二行开始是数据
-    const data = jsonData.slice(1).map((row: any, rowIndex: number) => {
+    const data = jsonData.slice(1).map((row: any[], rowIndex: number) => {
       const obj: any = {};
       headers.forEach((header, colIndex) => {
         const value = row[colIndex];
@@ -233,6 +237,7 @@ export async function POST(request: NextRequest) {
               urlValue.includes('b23.tv')) {
             
             try {
+              console.log(`🔗 解析URL [${key}]: ${urlValue}`);
               const result = await parseShortUrl(urlValue);
               processedRow[`${key}_长链`] = result.longUrl;
               processedRow[`${key}_平台`] = result.platform;
@@ -250,7 +255,7 @@ export async function POST(request: NextRequest) {
               await new Promise(resolve => setTimeout(resolve, delay));
               
             } catch (error) {
-              console.error(`解析URL失败 [${key}]:`, urlValue);
+              console.error(`❌ 解析URL失败 [${key}]:`, urlValue);
               processedRow[`${key}_长链`] = urlValue;
               processedRow[`${key}_平台`] = '解析失败';
               failCount++;
