@@ -5,6 +5,7 @@ import { platformManager } from '@/lib/platforms';
 
 export async function POST(request: NextRequest) {
   try {
+    // 解析请求体
     const { longUrl } = await request.json();
 
     // 1. 验证输入
