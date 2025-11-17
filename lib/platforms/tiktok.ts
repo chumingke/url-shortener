@@ -28,25 +28,50 @@ export class TikTokProcessor extends PlatformProcessor {
   async normalize(url: string): Promise<string> {
     console.log('处理抖音链接:', url);
     
-    // 如果已经是长链接，直接返回（清理参数）
-    if (!this.isShortLink(url)) {
+    // 如果已经是长链接，直接返回
+    if (url.includes('www.douyin.com/video/')) {
       return this.cleanUrl(url);
     }
 
-    // 短链接：跟踪重定向获取长链接
+    // 抖音短链接解析 - 在服务器环境中可能需要不同的方法
     try {
-      const longUrl = await this.followRedirects(url);
-      console.log('抖音短链转长链结果:', url, '->', longUrl);
-      return this.cleanUrl(longUrl);
+      // 在 Vercel 环境中，我们可能需要使用不同的方法
+      // 暂时返回原始链接，并提示用户手动获取
+      console.log('抖音短链接解析在服务器环境中受限:', url);
+      
+      // 提取短码用于显示
+      const shortCodeMatch = url.match(/v\.douyin\.com\/([^\/]+)/);
+      if (shortCodeMatch) {
+        const shortCode = shortCodeMatch[1];
+        throw new Error(`抖音短链接解析受限。请手动访问 https://v.douyin.com/${shortCode} 获取长链接`);
+      }
+      
+      throw new Error('无法解析抖音短链接');
     } catch (error) {
-      throw new Error(`抖音短链接解析失败: ${(error as Error).message}`);
+      console.error('抖音短链接解析失败:', error);
+      throw new Error(`抖音短链接解析失败: 请在浏览器中手动访问该链接获取长链接`);
     }
   }
 
   async getDisplayInfo(url: string): Promise<{ title: string; thumbnail?: string }> {
-    const videoId = this.extractId(url);
-    return {
-      title: videoId ? `抖音视频 ${videoId}` : '抖音链接',
-    };
+    const cleanedUrl = this.cleanUrl(url);
+    const videoId = this.extractId(cleanedUrl);
+    
+    if (videoId) {
+      return {
+        title: `抖音视频 ${videoId}`,
+      };
+    } else {
+      // 如果是短链接，提供更友好的提示
+      const shortCodeMatch = url.match(/v\.douyin\.com\/([^\/]+)/);
+      if (shortCodeMatch) {
+        return {
+          title: `抖音短链接 - 需要手动解析`,
+        };
+      }
+      return {
+        title: '抖音链接',
+      };
+    }
   }
 }
