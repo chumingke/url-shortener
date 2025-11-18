@@ -55,7 +55,7 @@ export async function POST(request: NextRequest) {
 
     const urlData = {
       id,
-      shortUrl: cleanedUrl,
+      shortUrl: longUrl,
       longUrl: cleanedUrl,
       originalUrl: longUrl,
       normalizedUrl: cleanedUrl,
