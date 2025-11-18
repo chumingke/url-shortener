@@ -11,10 +11,9 @@ export class TikTokProcessor extends PlatformProcessor {
   }
 
   extractId(url: string): string | null {
-    // 从长链接中提取视频ID
     const patterns = [
-      /video\/(\d+)/,           // https://www.douyin.com/video/1234567890123456789
-      /note\/(\d+)/,            // 笔记格式
+      /video\/(\d+)/,
+      /note\/(\d+)/,
     ];
     
     for (const pattern of patterns) {
@@ -33,45 +32,43 @@ export class TikTokProcessor extends PlatformProcessor {
       return this.cleanUrl(url);
     }
 
-    // 抖音短链接解析 - 在服务器环境中可能需要不同的方法
-    try {
-      // 在 Vercel 环境中，我们可能需要使用不同的方法
-      // 暂时返回原始链接，并提示用户手动获取
-      console.log('抖音短链接解析在服务器环境中受限:', url);
-      
-      // 提取短码用于显示
-      const shortCodeMatch = url.match(/v\.douyin\.com\/([^\/]+)/);
-      if (shortCodeMatch) {
-        const shortCode = shortCodeMatch[1];
-        throw new Error(`抖音短链接解析受限。请手动访问 https://v.douyin.com/${shortCode} 获取长链接`);
-      }
-      
-      throw new Error('无法解析抖音短链接');
-    } catch (error) {
-      console.error('抖音短链接解析失败:', error);
-      throw new Error(`抖音短链接解析失败: 请在浏览器中手动访问该链接获取长链接`);
+    // 抖音短链接 - 标记需要客户端解析
+    if (url.includes('v.douyin.com')) {
+      // 返回特殊标记，让前端知道需要客户端解析
+      return `client_parse:${url}`;
     }
+    
+    return this.cleanUrl(url);
   }
 
   async getDisplayInfo(url: string): Promise<{ title: string; thumbnail?: string }> {
-    const cleanedUrl = this.cleanUrl(url);
-    const videoId = this.extractId(cleanedUrl);
+    const videoId = this.extractId(url);
     
     if (videoId) {
       return {
         title: `抖音视频 ${videoId}`,
       };
-    } else {
-      // 如果是短链接，提供更友好的提示
-      const shortCodeMatch = url.match(/v\.douyin\.com\/([^\/]+)/);
-      if (shortCodeMatch) {
-        return {
-          title: `抖音短链接 - 需要手动解析`,
-        };
-      }
+    } else if (url.includes('v.douyin.com')) {
       return {
-        title: '抖音链接',
+        title: '抖音短链接 - 点击解析',
       };
     }
+    
+    return {
+      title: '抖音链接',
+    };
+  }
+
+  // 新增：检查是否需要客户端解析
+  needsClientParse(normalizedUrl: string): boolean {
+    return normalizedUrl.startsWith('client_parse:');
+  }
+
+  // 新增：获取原始URL
+  getOriginalUrl(normalizedUrl: string): string {
+    if (this.needsClientParse(normalizedUrl)) {
+      return normalizedUrl.replace('client_parse:', '');
+    }
+    return normalizedUrl;
   }
 }
