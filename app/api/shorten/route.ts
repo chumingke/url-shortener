@@ -1,114 +1,84 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { redis, RedisKeys } from '@/lib/redis';
-import { generateShortCode, getDomainFromUrl } from '@/lib/utils';
-
-// 简单的平台检测
-function detectPlatform(url: string): string {
-  if (url.includes('douyin.com')) return 'douyin';
-  if (url.includes('youtube.com') || url.includes('youtu.be')) return 'youtube';
-  if (url.includes('bilibili.com')) return 'bilibili';
-  return 'other';
-}
-
-// 简单标题生成
-function generateTitle(url: string): string {
-  if (url.includes('douyin.com')) return '抖音视频';
-  if (url.includes('youtube.com') || url.includes('youtu.be')) return 'YouTube视频';
-  if (url.includes('bilibili.com')) return 'B站视频';
-  return '未知链接';
-}
+import { NextRequest, NextResponse } from "next/server";
+import { redis, RedisKeys } from "@/lib/redis";
+import {
+  expandDouyinShortUrl,
+  cleanFinalDouyinUrl,
+  detectPlatform,
+  generateTitle,
+  generateShortCode,
+  getDomainFromUrl,
+} from "@/lib/utils";
 
 export async function POST(request: NextRequest) {
   try {
     const { longUrl } = await request.json();
 
-    // 1. 基础校验
-    if (!longUrl || typeof longUrl !== 'string' || longUrl.trim().length === 0) {
+    if (!longUrl || typeof longUrl !== "string") {
       return NextResponse.json(
-        { success: false, error: '请输入有效的URL链接' },
+        { success: false, error: "请输入有效的URL链接" },
         { status: 400 }
       );
     }
 
-    let cleanUrl = longUrl.trim();
+    let url = longUrl.trim();
 
-    if (!cleanUrl.startsWith('http://') && !cleanUrl.startsWith('https://')) {
+    // 必须 http(s)
+    if (!url.startsWith("http://") && !url.startsWith("https://")) {
       return NextResponse.json(
-        { success: false, error: 'URL必须以 http:// 或 https:// 开头' },
+        { success: false, error: "URL 必须以 http:// 或 https:// 开头" },
         { status: 400 }
       );
     }
 
-    // 2. 自动解析抖音短链
-    let finalLongUrl = cleanUrl;
-
-    if (cleanUrl.includes('v.douyin.com/')) {
-      console.log("检测到抖音短链，开始解析:", cleanUrl);
-
-      try {
-        const response = await fetch(cleanUrl, {
-          method: "GET",
-          redirect: "follow",
-        });
-
-        finalLongUrl = response.url; // 最终跳转后的真实长链
-        console.log("抖音短链解析成功:", finalLongUrl);
-      } catch (err) {
-        console.error("抖音短链解析失败:", err);
-      }
+    // =============== 1. 先解析抖音短链 ===============
+    if (url.includes("v.douyin.com")) {
+      url = await expandDouyinShortUrl(url);
     }
 
-    // 3. 平台检测与标题生成
-    const platform = detectPlatform(finalLongUrl);
-    const title = generateTitle(finalLongUrl);
+    // =============== 2. 清洗抖音长链 ===============
+    const cleanedUrl = cleanFinalDouyinUrl(url);
 
-    // 4. Redis 去重判断
-    const existing = await redis.get(RedisKeys.urlByLongUrl(finalLongUrl));
+    // =============== 3. 平台 & 标题 ===============
+    const platform = detectPlatform(cleanedUrl);
+    const title = generateTitle(cleanedUrl);
+
+    console.log("解析结果：", { 输入: longUrl, 最终链接: cleanedUrl });
+
+    // =============== 4. 检查是否已存在 ===============
+    const existing = await redis.get(RedisKeys.urlByLongUrl(cleanedUrl));
     if (existing) {
-      return NextResponse.json({
-        success: true,
-        data: existing
-      });
+      return NextResponse.json({ success: true, data: existing });
     }
 
-    // 5. 构建保存的数据
+    // =============== 5. 生成短码记录 ===============
+    const id = generateShortCode();
+
     const urlData = {
-      id: generateShortCode(),
-      shortUrl: cleanUrl,            // 用户输入的短链（如果是短链）
-      longUrl: finalLongUrl,         // 真实长链
-      originalUrl: cleanUrl,
-      normalizedUrl: finalLongUrl,
+      id,
+      shortUrl: cleanedUrl,
+      longUrl: cleanedUrl,
+      originalUrl: longUrl,
+      normalizedUrl: cleanedUrl,
       createdAt: new Date().toISOString(),
-      clickCount: 0,
       platform,
+      clickCount: 0,
       title,
       thumbnail: null,
-      domain: getDomainFromUrl(finalLongUrl)
+      domain: getDomainFromUrl(cleanedUrl),
     };
 
-    // 6. 存入 Redis
+    // =============== 6. 写入 Redis ===============
     await Promise.all([
-      redis.set(RedisKeys.urlByLongUrl(finalLongUrl), urlData),
-      redis.zadd(RedisKeys.allUrls, {
-        score: Date.now(),
-        member: urlData.id
-      }),
-      redis.hincrby(RedisKeys.platformStats, platform, 1)
+      redis.set(RedisKeys.urlByLongUrl(cleanedUrl), urlData),
+      redis.zadd(RedisKeys.allUrls, { score: Date.now(), member: id }),
+      redis.hincrby(RedisKeys.platformStats, platform, 1),
     ]);
 
-    // 7. 返回结果
-    return NextResponse.json({
-      success: true,
-      data: urlData
-    });
-
-  } catch (error) {
-    console.error('短链转换错误:', error);
+    return NextResponse.json({ success: true, data: urlData });
+  } catch (error: any) {
+    console.error("短链转换错误:", error);
     return NextResponse.json(
-      {
-        success: false,
-        error: '转换失败: ' + (error instanceof Error ? error.message : 'Unknown error')
-      },
+      { success: false, error: "转换失败：" + error.message },
       { status: 500 }
     );
   }

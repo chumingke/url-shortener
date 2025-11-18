@@ -1,61 +1,79 @@
-import { customAlphabet } from 'nanoid';
+import { customAlphabet } from "nanoid";
 
-const alphabet = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
+const alphabet =
+  "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
 export const generateShortCode = customAlphabet(alphabet, 6);
 
-// =============== 抖音长链规范化（关键修复） ===============
-
-// 从超长抖音长链中提取 videoId
-export function normalizeDouyinLongUrl(url: string): string {
+// ===============
+// 抖音长链最终清洗
+// ===============
+export function cleanFinalDouyinUrl(url: string): string {
   try {
     const u = new URL(url);
 
-    // 目标 URL 格式：
-    // https://www.iesdouyin.com/share/video/1234567890/
-    const match = u.pathname.match(/video\/(\d+)/);
-
-    if (match && match[1]) {
-      const videoId = match[1];
-      return `https://www.iesdouyin.com/share/video/${videoId}/`;
+    // 新版抖音视频长链： https://www.douyin.com/video/{id}
+    if (u.hostname === "www.douyin.com" && u.pathname.startsWith("/video/")) {
+      return `https://www.douyin.com${u.pathname}`;
     }
-  } catch {}
 
-  // 无法解析则返回原值
-  return url;
-}
+    // 旧版: https://www.iesdouyin.com/share/video/{id}/?from=xx
+    if (
+      u.hostname.includes("iesdouyin.com") &&
+      u.pathname.includes("/share/video/")
+    ) {
+      const parts = u.pathname.split("/");
+      const videoId = parts.find((p) => /^\d+$/.test(p)); // 找数字ID
 
-// =============== 通用 URL 清理（保留你的逻辑） ===============
-export function cleanUserInput(url: string): string {
-  if (!url || typeof url !== 'string') return '';
+      if (videoId) {
+        return `https://www.douyin.com/video/${videoId}`;
+      }
+    }
 
-  let cleaned = url.trim().split(' ')[0].replace(/^["']+|["']+$/g, '');
-
-  if (!cleaned.startsWith('http://') && !cleaned.startsWith('https://')) {
-    cleaned = 'https://' + cleaned;
+    return url;
+  } catch {
+    return url;
   }
-
-  return cleaned.replace(/\/+$/, '');
 }
 
-// =============== 平台识别 ===============
+// ===============
+// 抖音短链解析 v.douyin.com/xxxx
+// ===============
+export async function expandDouyinShortUrl(shortUrl: string): Promise<string> {
+  try {
+    const res = await fetch(shortUrl, {
+      method: "GET",
+      redirect: "follow",
+    });
+
+    return res.url; // 最终跳转后的 URL
+  } catch (e) {
+    console.error("抖音短链解析失败:", e);
+    return shortUrl;
+  }
+}
+
+// 平台判断
 export function detectPlatform(url: string): string {
-  if (url.includes('douyin.com')) return 'douyin';
-  if (url.includes('youtube.com') || url.includes('youtu.be')) return 'youtube';
-  if (url.includes('bilibili.com')) return 'bilibili';
-  return 'other';
+  if (url.includes("douyin.com")) return "douyin";
+  if (url.includes("youtube.com") || url.includes("youtu.be")) return "youtube";
+  if (url.includes("bilibili.com")) return "bilibili";
+  return "other";
 }
 
-// =============== 长链规范化入口 ===============
-export function normalizeLongUrl(url: string, platform: string): string {
-  if (platform === 'douyin') return normalizeDouyinLongUrl(url);
-  return url;
+// 标题
+export function generateTitle(url: string): string {
+  if (url.includes("douyin.com")) return "抖音视频";
+  if (url.includes("youtube.com") || url.includes("youtu.be")) return "YouTube视频";
+  if (url.includes("bilibili.com")) return "B站视频";
+  return "未知链接";
 }
 
-// =============== 域名提取（保留你的逻辑） ===============
+// 安全获取 domain
 export function getDomainFromUrl(url: string): string {
   try {
-    return new URL(url).hostname;
+    const u = new URL(url);
+    return u.hostname;
   } catch {
-    return 'unknown';
+    return "unknown";
   }
 }
