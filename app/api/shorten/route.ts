@@ -56,7 +56,8 @@ export async function POST(request: NextRequest) {
       title: displayInfo.title,
       thumbnail: displayInfo.thumbnail,
       domain: getDomainFromUrl(normalizedUrl),
-      needsClientParse: displayInfo.needsClientParse || false
+      // 修复：移除不存在的属性或提供默认值
+      needsClientParse: platform === 'douyin' // 简单逻辑：抖音链接需要客户端解析
     };
 
     // 6. 存储到 Redis
