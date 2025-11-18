@@ -5,10 +5,9 @@ import { platformManager } from '@/lib/platforms';
 
 export async function POST(request: NextRequest) {
   try {
-    // 解析请求体
     const { longUrl } = await request.json();
 
-    // 1. 基础验证（避免构建时URL解析）
+    // 基础验证
     if (!longUrl || typeof longUrl !== 'string' || longUrl.trim().length === 0) {
       return NextResponse.json(
         { success: false, error: '请输入有效的URL链接' },
@@ -16,7 +15,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 2. 简单格式验证
     const cleanUrl = longUrl.trim();
     if (!cleanUrl.startsWith('http://') && !cleanUrl.startsWith('https://')) {
       return NextResponse.json(
@@ -25,7 +23,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 3. 使用平台管理器将短链接转换为长链接
     const { platform, normalizedUrl, displayInfo } = await platformManager.processUrl(cleanUrl);
     
     console.log('短链转长链结果:', {
@@ -34,7 +31,6 @@ export async function POST(request: NextRequest) {
       输出长链: normalizedUrl
     });
 
-    // 4. 检查是否已存在相同的转换
     const existing = await redis.get(RedisKeys.urlByLongUrl(cleanUrl));
     if (existing) {
       return NextResponse.json({
@@ -43,7 +39,6 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // 5. 构建返回数据
     const urlData = {
       id: generateShortCode(),
       shortUrl: cleanUrl,
@@ -55,12 +50,9 @@ export async function POST(request: NextRequest) {
       clickCount: 0,
       title: displayInfo.title,
       thumbnail: displayInfo.thumbnail,
-      domain: getDomainFromUrl(normalizedUrl),
-      // 修复：移除不存在的属性或提供默认值
-      needsClientParse: platform === 'douyin' // 简单逻辑：抖音链接需要客户端解析
+      domain: getDomainFromUrl(normalizedUrl)
     };
 
-    // 6. 存储到 Redis
     await Promise.all([
       redis.set(RedisKeys.urlByLongUrl(cleanUrl), urlData),
       redis.zadd(RedisKeys.allUrls, {
@@ -70,7 +62,6 @@ export async function POST(request: NextRequest) {
       redis.hincrby(RedisKeys.platformStats, platform, 1)
     ]);
 
-    // 7. 返回成功响应
     return NextResponse.json({
       success: true,
       data: urlData
