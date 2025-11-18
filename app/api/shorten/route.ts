@@ -1,61 +1,88 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { redis, RedisKeys } from '@/lib/redis';
-import { normalizeDouyinUrl } from '@/lib/normalize';
+import { NextRequest, NextResponse } from "next/server";
+import { redis, RedisKeys } from "@/lib/redis";
+import {
+  expandDouyinShortUrl,
+  cleanFinalDouyinUrl,
+  detectPlatform,
+  generateTitle,
+  generateShortCode,
+  getDomainFromUrl,
+} from "@/lib/utils";
 
-export async function POST(req: NextRequest) {
+export async function POST(request: NextRequest) {
   try {
-    const { longUrl: input } = await req.json();
+    const { longUrl } = await request.json();
 
-    if (!input) {
-      return NextResponse.json({ success: false, error: "请输入 URL" });
+    if (!longUrl || typeof longUrl !== "string") {
+      return NextResponse.json(
+        { success: false, error: "请输入有效的URL链接" },
+        { status: 400 }
+      );
     }
 
-    const originalInput = input.trim();
+    const originalInput = longUrl.trim();
 
-    // 调用你现有的 normalize 方法
-    const resolved = await normalizeDouyinUrl(originalInput);
-
-    console.log("解析结果:", resolved);
-
-    // resolved → { originalInput, resolvedUrl, cleanedUrl }
-    const longUrl = resolved.cleanedUrl;       // 最终解析后的真实链接
-    const platform = "douyin";
-
-    // 检查 Redis 是否已有数据
-    const exist = await redis.get(RedisKeys.urlByLongUrl(longUrl));
-    if (exist) {
-      return NextResponse.json({ success: true, data: exist });
+    if (!originalInput.startsWith("http://") && !originalInput.startsWith("https://")) {
+      return NextResponse.json(
+        { success: false, error: "URL 必须以 http:// 或 https:// 开头" },
+        { status: 400 }
+      );
     }
 
-    const id = resolved.cleanedUrl.split("/").pop();
+    // 1) 展开抖音短链（如果是 v.douyin.com）
+    let resolvedUrl = originalInput;
+    if (originalInput.includes("v.douyin.com")) {
+      try {
+        resolvedUrl = await expandDouyinShortUrl(originalInput);
+      } catch (e) {
+        console.error("expandDouyinShortUrl 错误，使用原始输入：", e);
+        resolvedUrl = originalInput;
+      }
+    }
 
-    // ⭐⭐⭐ 最重要修复点：shortUrl 必须保存用户原始输入 ⭐⭐⭐
+    // 2) 清洗为最干净的抖音视频链接
+    const cleanedUrl = cleanFinalDouyinUrl(resolvedUrl);
+
+    // 3) 平台、标题
+    const platform = detectPlatform(cleanedUrl);
+    const title = generateTitle(cleanedUrl);
+
+    console.log("解析结果:", { originalInput, resolvedUrl, cleanedUrl });
+
+    // 4) 去重（以 cleanedUrl 为 key）
+    const existing = await redis.get(RedisKeys.urlByLongUrl(cleanedUrl));
+    if (existing) {
+      return NextResponse.json({ success: true, data: existing });
+    }
+
+    // 5) 生成并保存（shortUrl 保留用户原始输入）
+    const id = generateShortCode();
+
     const urlData = {
       id,
-      shortUrl: originalInput,   // 必须是 v.douyin.com 短链！
-      longUrl: longUrl,          // 解析后的长链
+      shortUrl: originalInput,
+      longUrl: cleanedUrl,
       originalUrl: originalInput,
-      normalizedUrl: longUrl,
-      platform,
-      title: "抖音视频",
+      normalizedUrl: cleanedUrl,
       createdAt: new Date().toISOString(),
+      platform,
       clickCount: 0,
-      thumbnail: null
+      title,
+      thumbnail: null,
+      domain: getDomainFromUrl(cleanedUrl),
     };
 
-    // 写入 Redis
     await Promise.all([
-      redis.set(RedisKeys.urlByLongUrl(longUrl), urlData),
+      redis.set(RedisKeys.urlByLongUrl(cleanedUrl), urlData),
       redis.zadd(RedisKeys.allUrls, { score: Date.now(), member: id }),
-      redis.hincrby(RedisKeys.platformStats, platform, 1)
+      redis.hincrby(RedisKeys.platformStats, platform, 1),
     ]);
 
     return NextResponse.json({ success: true, data: urlData });
-
-  } catch (err: any) {
-    console.error(err);
+  } catch (error: any) {
+    console.error("短链转换错误:", error);
     return NextResponse.json(
-      { success: false, error: err.message || "解析失败" },
+      { success: false, error: "转换失败：" + (error?.message ?? "Unknown error") },
       { status: 500 }
     );
   }
