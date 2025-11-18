@@ -64,7 +64,7 @@ export function cleanUserInput(url: string): string {
 // 增强的URL验证
 export function isValidUrl(url: string): boolean {
   try {
-    const cleaned = cleanDouyinUrl(url); // 使用抖音专用清理
+    const cleaned = cleanDouyinUrl(url);
     new URL(cleaned);
     return true;
   } catch {
@@ -72,10 +72,18 @@ export function isValidUrl(url: string): boolean {
   }
 }
 
+// 修复：安全的域名提取函数
 export function getDomainFromUrl(url: string): string {
   try {
-    return new URL(url).hostname;
-  } catch {
+    // 安全地创建 URL 对象
+    const urlObj = new URL(url);
+    return urlObj.hostname;
+  } catch (error) {
+    console.error('URL解析失败:', url, error);
+    // 返回安全的默认值
+    if (url.includes('douyin.com')) return 'v.douyin.com';
+    if (url.includes('youtube.com') || url.includes('youtu.be')) return 'youtube.com';
+    if (url.includes('bilibili.com')) return 'bilibili.com';
     return 'unknown';
   }
 }
