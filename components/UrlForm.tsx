@@ -19,47 +19,42 @@ export function UrlForm({ onSuccess }: UrlFormProps) {
     setError('');
 
     try {
-      // === 修复的抖音链接清理逻辑 ===
+      // === 抖音链接清理逻辑 ===
       let cleanUrl = longUrl.trim();
       
       // 处理抖音特有的分享格式（包含说明文字的链接）
       if (cleanUrl.includes('v.douyin.com')) {
         console.log('检测到抖音链接，原始输入:', cleanUrl);
         
-        // 如果是标准短链（长度较短，没有多余文本），不需要清理
-        if (cleanUrl.length < 50 && cleanUrl.match(/^https?:\/\/v\.douyin\.com\/[^\/\s]+\/?$/)) {
-          console.log('标准抖音短链，无需清理');
-          // 确保以斜杠结尾
+        // 提取纯净的抖音URL
+        const urlMatch = cleanUrl.match(/(https?:\/\/v\.douyin\.com\/[^\/\s]+\/)/);
+        if (urlMatch) {
+          cleanUrl = urlMatch[0];
+          console.log('清理后的抖音链接:', cleanUrl);
+        } else {
+          // 如果匹配失败，确保格式正确
           if (!cleanUrl.endsWith('/')) {
             cleanUrl += '/';
           }
-        } else {
-          // 包含说明文字的抖音分享链接，需要清理
-          const urlMatch = cleanUrl.match(/(https?:\/\/v\.douyin\.com\/[^\/\s]+)\/?/);
-          if (urlMatch) {
-            cleanUrl = urlMatch[1] + '/'; // 确保有斜杠
-            console.log('清理抖音链接:', { 原始: longUrl, 清理后: cleanUrl });
-          }
         }
       }
-      // === 清理逻辑结束 ===
 
-      console.log('最终提交的URL:', cleanUrl);
+      console.log('最终提交URL:', cleanUrl);
 
       const response = await fetch('/api/shorten', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ longUrl: cleanUrl }), // 使用清理后的URL
+        body: JSON.stringify({ longUrl: cleanUrl }),
       });
 
       const result = await response.json();
 
       if (result.success) {
-        // 检查是否需要客户端解析
-        if (result.data.needsClientParse) {
-          console.log('需要客户端解析:', result.data.normalizedUrl);
+        // === 关键修改：抖音链接强制走客户端解析 ===
+        if (result.data.platform === 'douyin') {
+          console.log('抖音链接，强制客户端解析:', result.data.normalizedUrl);
           await handleClientSideParse(result.data);
         } else {
           onSuccess(result.data);
@@ -75,18 +70,24 @@ export function UrlForm({ onSuccess }: UrlFormProps) {
     }
   };
 
-  // 新增：客户端解析函数
+  // 客户端解析函数
   const handleClientSideParse = async (urlData: any) => {
     try {
       setLoading(true);
-      console.log('开始客户端解析抖音链接:', urlData.normalizedUrl);
+      console.log('=== 开始客户端解析抖音链接 ===');
+      console.log('解析URL:', urlData.normalizedUrl);
 
       // 使用代理API获取重定向信息
       const proxyResponse = await fetch(`/api/proxy?url=${encodeURIComponent(urlData.normalizedUrl)}`);
+      
+      if (!proxyResponse.ok) {
+        throw new Error('代理服务暂时不可用');
+      }
+
       const proxyResult = await proxyResponse.json();
       
       if (proxyResult.error) {
-        throw new Error(`客户端解析失败: ${proxyResult.error}`);
+        throw new Error(proxyResult.error);
       }
 
       console.log('代理响应:', proxyResult);
@@ -101,6 +102,7 @@ export function UrlForm({ onSuccess }: UrlFormProps) {
         }
       } else if (proxyResult.url && proxyResult.url !== urlData.normalizedUrl) {
         finalUrl = proxyResult.url;
+        console.log('使用响应URL:', finalUrl);
       }
 
       // 更新数据
@@ -111,12 +113,20 @@ export function UrlForm({ onSuccess }: UrlFormProps) {
         needsClientParse: false
       };
 
+      console.log('客户端解析完成:', updatedData);
       onSuccess(updatedData);
       setLongUrl('');
       
     } catch (err) {
       console.error('客户端解析错误:', err);
       setError(`抖音链接解析失败: ${(err as Error).message}。请手动在浏览器中打开获取长链接。`);
+      
+      // 即使解析失败，也显示原始结果
+      const fallbackData = {
+        ...urlData,
+        needsClientParse: false
+      };
+      onSuccess(fallbackData);
     } finally {
       setLoading(false);
     }
@@ -162,9 +172,9 @@ export function UrlForm({ onSuccess }: UrlFormProps) {
         </button>
       </form>
 
-      <div className="mt-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
-        <p className="text-xs text-blue-800">
-          <strong>提示：</strong>支持直接粘贴抖音分享的全部内容，系统会自动提取纯净链接。
+      <div className="mt-4 p-3 bg-yellow-50 rounded-lg border border-yellow-200">
+        <p className="text-xs text-yellow-800">
+          <strong>注意：</strong>抖音链接需要在您的浏览器中实时解析，请确保网络连接正常。
         </p>
       </div>
 
