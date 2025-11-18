@@ -39,8 +39,8 @@ export function UrlList({ urls }: UrlListProps) {
     <div className="bg-white rounded-2xl shadow-lg p-6">
       <h2 className="text-xl font-semibold text-gray-900 mb-4">已解析的链接</h2>
       <div className="space-y-4">
-        {urls.map((url) => (
-          <div key={url.id} className="border border-gray-200 rounded-lg p-4 hover:border-gray-300 transition-colors">
+        {urls.map((url, index) => (
+          <div key={`${url.id}-${index}`} className="border border-gray-200 rounded-lg p-4 hover:border-gray-300 transition-colors">
             <div className="flex items-start justify-between mb-3">
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 mb-2">

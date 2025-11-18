@@ -19,12 +19,39 @@ export function UrlForm({ onSuccess }: UrlFormProps) {
     setError('');
 
     try {
+      // === 修复的抖音链接清理逻辑 ===
+      let cleanUrl = longUrl.trim();
+      
+      // 处理抖音特有的分享格式（包含说明文字的链接）
+      if (cleanUrl.includes('v.douyin.com')) {
+        console.log('检测到抖音链接，原始输入:', cleanUrl);
+        
+        // 如果是标准短链（长度较短，没有多余文本），不需要清理
+        if (cleanUrl.length < 50 && cleanUrl.match(/^https?:\/\/v\.douyin\.com\/[^\/\s]+\/?$/)) {
+          console.log('标准抖音短链，无需清理');
+          // 确保以斜杠结尾
+          if (!cleanUrl.endsWith('/')) {
+            cleanUrl += '/';
+          }
+        } else {
+          // 包含说明文字的抖音分享链接，需要清理
+          const urlMatch = cleanUrl.match(/(https?:\/\/v\.douyin\.com\/[^\/\s]+)\/?/);
+          if (urlMatch) {
+            cleanUrl = urlMatch[1] + '/'; // 确保有斜杠
+            console.log('清理抖音链接:', { 原始: longUrl, 清理后: cleanUrl });
+          }
+        }
+      }
+      // === 清理逻辑结束 ===
+
+      console.log('最终提交的URL:', cleanUrl);
+
       const response = await fetch('/api/shorten', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ longUrl }),
+        body: JSON.stringify({ longUrl: cleanUrl }), // 使用清理后的URL
       });
 
       const result = await response.json();
@@ -112,7 +139,7 @@ export function UrlForm({ onSuccess }: UrlFormProps) {
             id="url"
             value={longUrl}
             onChange={(e) => setLongUrl(e.target.value)}
-            placeholder="https://v.douyin.com/ABC123def/ 或 https://youtu.be/ABC123def"
+            placeholder="粘贴抖音分享链接或其它短链接"
             className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             required
           />
@@ -134,6 +161,12 @@ export function UrlForm({ onSuccess }: UrlFormProps) {
           {loading ? '解析中...' : '解析短链接'}
         </button>
       </form>
+
+      <div className="mt-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
+        <p className="text-xs text-blue-800">
+          <strong>提示：</strong>支持直接粘贴抖音分享的全部内容，系统会自动提取纯净链接。
+        </p>
+      </div>
 
       <div className="mt-6 p-4 bg-gray-50 rounded-lg">
         <h3 className="text-sm font-medium text-gray-700 mb-2">支持平台</h3>
