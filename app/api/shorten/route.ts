@@ -2,7 +2,35 @@ import { NextRequest, NextResponse } from 'next/server';
 import { redis, RedisKeys } from '@/lib/redis';
 import { generateShortCode, getDomainFromUrl } from '@/lib/utils';
 
-// 简单的平台检测（避免复杂的URL解析）
+// ★ 新增：抖音链接清洗（只保留关键参数）
+function normalizeDouyinUrl(url: string): string {
+  try {
+    const u = new URL(url);
+
+    // 不是抖音就原样返回
+    if (!u.hostname.includes('douyin.com') && !u.hostname.includes('iesdouyin.com')) {
+      return url;
+    }
+
+    // 如果是短链 v.douyin.com 或跳转链，直接返回原样（前端会二次解析）
+    if (u.hostname.includes('v.douyin.com')) {
+      return url;
+    }
+
+    // 提取 video/123456789 部分
+    const match = u.pathname.match(/video\/(\d+)/);
+    if (!match) return url;
+
+    const videoId = match[1];
+
+    // ★ 构造最干净的抖音长链（不会带一大堆参数）
+    return `https://www.iesdouyin.com/share/video/${videoId}/`;
+  } catch {
+    return url;
+  }
+}
+
+// 平台检测
 function detectPlatform(url: string): string {
   if (url.includes('douyin.com')) return 'douyin';
   if (url.includes('youtube.com') || url.includes('youtu.be')) return 'youtube';
@@ -10,7 +38,7 @@ function detectPlatform(url: string): string {
   return 'other';
 }
 
-// 简单的标题生成
+// 标题
 function generateTitle(url: string): string {
   if (url.includes('douyin.com')) return '抖音视频';
   if (url.includes('youtube.com') || url.includes('youtu.be')) return 'YouTube视频';
@@ -20,18 +48,15 @@ function generateTitle(url: string): string {
 
 export async function POST(request: NextRequest) {
   try {
-    // 解析请求体
     const { longUrl } = await request.json();
 
-    // 1. 基础验证
-    if (!longUrl || typeof longUrl !== 'string' || longUrl.trim().length === 0) {
+    if (!longUrl || typeof longUrl !== 'string') {
       return NextResponse.json(
         { success: false, error: '请输入有效的URL链接' },
         { status: 400 }
       );
     }
 
-    // 2. 简单格式验证
     const cleanUrl = longUrl.trim();
     if (!cleanUrl.startsWith('http://') && !cleanUrl.startsWith('https://')) {
       return NextResponse.json(
@@ -40,17 +65,21 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 3. 检测平台和生成数据（简化版，避免复杂处理）
-    const platform = detectPlatform(cleanUrl);
-    const title = generateTitle(cleanUrl);
-    
+    // ★ 对抖音链接进行清洗
+    const normalizedUrl = normalizeDouyinUrl(cleanUrl);
+
+    // 检测平台
+    const platform = detectPlatform(normalizedUrl);
+    const title = generateTitle(normalizedUrl);
+
     console.log('短链处理结果:', {
-      平台: platform,
-      输入短链: cleanUrl,
+      输入原始链接: cleanUrl,
+      清洗后链接: normalizedUrl,
+      平台: platform
     });
 
-    // 4. 检查是否已存在相同的转换
-    const existing = await redis.get(RedisKeys.urlByLongUrl(cleanUrl));
+    // 检查是否已存在
+    const existing = await redis.get(RedisKeys.urlByLongUrl(normalizedUrl));
     if (existing) {
       return NextResponse.json({
         success: true,
@@ -58,24 +87,24 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // 5. 构建返回数据
+    // ★ 构建数据（shortUrl 用原链接 / longUrl 用清洗后的链接）
     const urlData = {
       id: generateShortCode(),
       shortUrl: cleanUrl,
-      longUrl: cleanUrl, // 简化：直接返回原URL，让客户端处理
-      platform: platform,
+      longUrl: normalizedUrl,
+      platform,
       originalUrl: cleanUrl,
-      normalizedUrl: cleanUrl,
+      normalizedUrl,
       createdAt: new Date().toISOString(),
       clickCount: 0,
-      title: title,
+      title,
       thumbnail: null,
-      domain: getDomainFromUrl(cleanUrl)
+      domain: getDomainFromUrl(normalizedUrl)
     };
 
-    // 6. 存储到 Redis
+    // 存储 Redis
     await Promise.all([
-      redis.set(RedisKeys.urlByLongUrl(cleanUrl), urlData),
+      redis.set(RedisKeys.urlByLongUrl(normalizedUrl), urlData),
       redis.zadd(RedisKeys.allUrls, {
         score: Date.now(),
         member: urlData.id
@@ -83,7 +112,6 @@ export async function POST(request: NextRequest) {
       redis.hincrby(RedisKeys.platformStats, platform, 1)
     ]);
 
-    // 7. 返回成功响应
     return NextResponse.json({
       success: true,
       data: urlData
@@ -92,8 +120,8 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('短链转换错误:', error);
     return NextResponse.json(
-      { 
-        success: false, 
+      {
+        success: false,
         error: '转换失败: ' + (error instanceof Error ? error.message : 'Unknown error')
       },
       { status: 500 }
