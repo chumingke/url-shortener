@@ -51,9 +51,20 @@ export async function POST(request: NextRequest) {
 
     // 4) 去重（以 cleanedUrl 为 key）
     const existing = await redis.get(RedisKeys.urlByLongUrl(cleanedUrl));
+
     if (existing) {
-      return NextResponse.json({ success: true, data: existing });
-    }
+      // 关键修复：确保 shortUrl 永远是用户的原始输入
+      const updated = {
+        ...existing,
+        shortUrl: originalInput,
+        originalUrl: originalInput,
+      };
+
+      // 写回 Redis 覆盖旧数据
+      await redis.set(RedisKeys.urlByLongUrl(cleanedUrl), updated);
+
+      return NextResponse.json({ success: true, data: updated });
+}
 
     // 5) 生成并保存（shortUrl 保留用户原始输入）
     const id = generateShortCode();
